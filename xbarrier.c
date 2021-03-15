@@ -11,16 +11,19 @@
 #define VERSION "dev"
 #endif
 
+const int NO_HIT = 0;
+const int HIT = 1;
+
 int main(int argc, char **argv)
 {
-    unsigned delay = 100;
+    unsigned hit_reset_delay = 100;
 
     int opt;
     extern char *optarg;
     while ((opt = getopt(argc, argv, "hvd:")) != -1) {
         switch (opt) {
         case 'd':
-            delay = atoi(optarg);
+            hit_reset_delay = atoi(optarg);
             break;
         case 'v':
             printf("%s\n", VERSION);
@@ -88,61 +91,56 @@ OPTIONS:\n\
     mask.mask = m;
     mask.deviceid = XIAllMasterDevices;
     mask.mask_len = XIMaskLen(XI_BarrierLeave);
-
     XISetMask(mask.mask, XI_BarrierHit);
     XISetMask(mask.mask, XI_BarrierLeave);
 
     XISelectEvents(d, root, &mask, 1);
 
     Time hit_start = 0;
-    Time last_hit = 0;
-    Time hit_time = 0;
+    Time prev_hit = 0;
     int b1_hit = 0;
     int b2_hit = 0;
     while (1) {
         XEvent ev;
         XNextEvent(d, &ev);
         switch (ev.type) {
-        case GenericEvent: {
+        case GenericEvent:
             XGetEventData(d, &ev.xcookie);
             XIBarrierEvent *b = (XIBarrierEvent *)(ev.xcookie.data);
-            Time t = b->time;
-            if (b->evtype == XI_BarrierHit) {
+
+            switch (b->evtype) {
+            case XI_BarrierHit:
                 if (b->barrier == bar1) {
-                    b1_hit = 1;
+                    b1_hit = HIT;
                 } else if (b->barrier == bar2) {
-                    b2_hit = 1;
+                    b2_hit = HIT;
                 }
 
-                unsigned dif = t - last_hit;
-                if (dif > delay) {
-                    hit_start = t;
+                unsigned dif = b->time - prev_hit;
+                prev_hit = b->time;
+
+                if (dif > hit_reset_delay) {
+                    hit_start = b->time;
                 }
-                if (last_hit > 0 && dif < delay) {
-                    hit_time += dif;
-                }
-                last_hit = t;
-                if (hit_time >= 20) {
-                    printf("hit\t\t%lud\n", t - hit_start);
-                    hit_time = 0;
-                }
-            } else if (b->evtype == XI_BarrierLeave) {
+
+                printf("hit\t%lu\n", b->time - hit_start);
+
+                break;
+            case XI_BarrierLeave:
                 if (b->barrier == bar1) {
-                    b1_hit = 0;
+                    b1_hit = NO_HIT;
                 } else if (b->barrier == bar2) {
-                    b2_hit = 0;
+                    b2_hit = NO_HIT;
                 }
-                if (b1_hit == 0 && b2_hit == 0) {
-                    printf("leave\t\t%lud\n", t - hit_start);
+                if (b1_hit == NO_HIT && b2_hit == NO_HIT) {
+                    printf("leave\t%lu\n", b->time - hit_start);
                 }
+                break;
             }
-            break;
-        }
-        default:
-            break;
-        }
 
-        XFreeEventData(d, &ev.xcookie);
+            XFreeEventData(d, &ev.xcookie);
+            break;
+        }
     }
 
     XFixesDestroyPointerBarrier(d, bar1);
