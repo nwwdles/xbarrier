@@ -9,28 +9,9 @@
 #define VERSION "dev"
 #endif
 
-int main(int argc, char **argv)
+int usage()
 {
-    setvbuf(stdout, NULL, _IOLBF, 32);
-    unsigned hit_reset_delay = 100;
-    unsigned trigger_delay = 0;
-    int opt;
-    extern char *optarg;
-    extern int optind;
-    while ((opt = getopt(argc, argv, "hvr:t:")) != -1) {
-        switch (opt) {
-        case 'r':
-            hit_reset_delay = atoi(optarg);
-            break;
-        case 't':
-            trigger_delay = atoi(optarg);
-            break;
-        case 'v':
-            printf("%s\n", VERSION);
-            exit(0);
-            break;
-        case 'h':
-            printf("usage: xbarrier [-h|-v] [-r T] [-t T] X Y W [H]\n\
+    return printf("usage: xbarrier [-h|-v] [-r T] [-t T] X Y W [H]\n\
 \n\
 Creates a cross-shaped barrier in point (X, Y)\n\
 with width W and height H (defaults to W).\n\
@@ -43,15 +24,45 @@ OPTIONS:\n\
     -h      show this help\n\
     -v      show version\n\
     -r T    reset hit timer after T msec without events\n\
-    -t T    only print one event, after T msec\n\
-");
+    -t T    only print one event, after T msec\n");
+}
+
+int main(int argc, char **argv)
+{
+    setvbuf(stdout, NULL, _IOLBF, 32);
+    unsigned hit_reset_delay = 100;
+    unsigned trigger_delay = 0;
+    int opt;
+    extern char *optarg;
+    extern int optind;
+    while ((opt = getopt(argc, argv, "hvr:t:")) != -1) {
+        switch (opt) {
+        case 'h':
+            usage();
             exit(0);
+            break;
+        case 'v':
+            printf("%s\n", VERSION);
+            exit(0);
+            break;
+        case 'r':
+            hit_reset_delay = atoi(optarg);
+            break;
+        case 't':
+            trigger_delay = atoi(optarg);
             break;
         }
     }
     if (argc - optind < 3) {
         fprintf(stderr, "Arguments must be: x, y, width, (height).\n");
         exit(1);
+    }
+    int x = atoi(argv[optind]);
+    int y = atoi(argv[optind + 1]);
+    int w = atoi(argv[optind + 2]);
+    int h = w;
+    if (argc - optind > 3) {
+        h = atoi(argv[optind + 3]);
     }
 
     Display *d = XOpenDisplay(NULL);
@@ -61,14 +72,6 @@ OPTIONS:\n\
     }
     int s = DefaultScreen(d);
     Window root = RootWindow(d, s);
-
-    int x = atoi(argv[optind]);
-    int y = atoi(argv[optind + 1]);
-    int w = atoi(argv[optind + 2]);
-    int h = w;
-    if (argc - optind > 3) {
-        h = atoi(argv[optind + 3]);
-    }
 
     int x1 = x - w;
     int y1 = y - h;
