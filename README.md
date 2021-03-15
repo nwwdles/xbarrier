@@ -36,5 +36,5 @@ Or, simpler
 
 ```sh
 #!/bin/sh
-xbarrier -t 200 1030 0 10 | while read -r; do notify-send 'Hello!'; done
+xbarrier -t 200 1024 0 10 | while read -r; do notify-send 'Hello!'; done
 ```
