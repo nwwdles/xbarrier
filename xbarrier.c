@@ -9,28 +9,30 @@
 #define VERSION "dev"
 #endif
 
-const int NO_HIT = 0;
-const int HIT = 1;
-
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, NULL, _IOLBF, 32);
     unsigned hit_reset_delay = 100;
-
+    unsigned trigger_delay = 0;
     int opt;
     extern char *optarg;
-    while ((opt = getopt(argc, argv, "hvd:")) != -1) {
+    extern int optind;
+    while ((opt = getopt(argc, argv, "hvr:t:")) != -1) {
         switch (opt) {
-        case 'd':
+        case 'r':
             hit_reset_delay = atoi(optarg);
+            break;
+        case 't':
+            trigger_delay = atoi(optarg);
             break;
         case 'v':
             printf("%s\n", VERSION);
             exit(0);
             break;
         case 'h':
-            printf("usage: xbarrier [-h|-v|-d DEL] X Y W [H]\n\
+            printf("usage: xbarrier [-h|-v] [-r T] [-t T] X Y W [H]\n\
 \n\
-Creates a cross-shaped barrier in point (X, Y) \n\
+Creates a cross-shaped barrier in point (X, Y)\n\
 with width W and height H (defaults to W).\n\
 If W or H are zero, the corresponding cross side\n\
 is not created.\n\
@@ -40,13 +42,14 @@ Hit and leave events are written to stdout.\n\
 OPTIONS:\n\
     -h      show this help\n\
     -v      show version\n\
-    -d DEL  set delay before hit timer reset\n\
+    -r T    reset hit timer after T msec without events\n\
+    -t T    only print one event, after T msec\n\
 ");
             exit(0);
             break;
         }
     }
-    if (argc < 4) {
+    if (argc - optind < 3) {
         fprintf(stderr, "Arguments must be: x, y, width, (height).\n");
         exit(1);
     }
@@ -59,12 +62,12 @@ OPTIONS:\n\
     int s = DefaultScreen(d);
     Window root = RootWindow(d, s);
 
-    int x = atoi(argv[1]);
-    int y = atoi(argv[2]);
-    int w = atoi(argv[3]);
+    int x = atoi(argv[optind]);
+    int y = atoi(argv[optind + 1]);
+    int w = atoi(argv[optind + 2]);
     int h = w;
-    if (argc >= 5) {
-        h = atoi(argv[4]);
+    if (argc - optind > 3) {
+        h = atoi(argv[optind + 3]);
     }
 
     int x1 = x - w;
@@ -94,10 +97,11 @@ OPTIONS:\n\
 
     XISelectEvents(d, root, &mask, 1);
 
+    Bool triggered = False;
     Time hit_start = 0;
     Time prev_hit = 0;
-    int b1_hit = 0;
-    int b2_hit = 0;
+    Bool b1_hit = False;
+    Bool b2_hit = False;
     while (1) {
         XEvent ev;
         XNextEvent(d, &ev);
@@ -109,9 +113,9 @@ OPTIONS:\n\
             switch (b->evtype) {
             case XI_BarrierHit:
                 if (b->barrier == bar1) {
-                    b1_hit = HIT;
+                    b1_hit = True;
                 } else if (b->barrier == bar2) {
-                    b2_hit = HIT;
+                    b2_hit = True;
                 }
 
                 unsigned dif = b->time - prev_hit;
@@ -121,17 +125,29 @@ OPTIONS:\n\
                     hit_start = b->time;
                 }
 
-                printf("hit\t%lu\n", b->time - hit_start);
+                unsigned t_since_start = b->time - hit_start;
+                if (t_since_start > trigger_delay && !triggered) {
+                    if (trigger_delay == 0) {
+                        printf("hit\t%u\n", t_since_start);
+                    } else {
+                        printf("hit\n");
+                        triggered = True;
+                    }
+                }
 
                 break;
             case XI_BarrierLeave:
                 if (b->barrier == bar1) {
-                    b1_hit = NO_HIT;
+                    b1_hit = False;
                 } else if (b->barrier == bar2) {
-                    b2_hit = NO_HIT;
+                    b2_hit = False;
                 }
-                if (b1_hit == NO_HIT && b2_hit == NO_HIT) {
-                    printf("leave\t%lu\n", b->time - hit_start);
+
+                if (!b1_hit && !b2_hit) {
+                    triggered = False;
+                    if (trigger_delay == 0) {
+                        printf("leave\t%lu\n", b->time - hit_start);
+                    }
                 }
                 break;
             }
