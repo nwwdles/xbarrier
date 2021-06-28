@@ -1,6 +1,7 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
 #include <X11/extensions/Xfixes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -11,31 +12,31 @@
 
 int usage()
 {
-    return printf("usage: xbarrier [-h|-v] [-r T] [-t T] X Y W [H]\n\
+    return printf("usage: xbarrier [-h|-v] [-r T] [-d S] [-t T] X Y W [H]\n\
 \n\
 Creates a cross-shaped barrier in point (X, Y)\n\
 with width W and height H (defaults to W).\n\
-If W or H are zero, the corresponding cross side\n\
-is not created.\n\
 \n\
-Hit and leave events are written to stdout.\n\
+Hit and leave events, distance and time are written to stdout.\n\
 \n\
 OPTIONS:\n\
     -h      show this help\n\
     -v      show version\n\
-    -r T    reset hit timer after T msec without events\n\
-    -t T    only print one event, after T msec\n");
+    -r T    reset hit timer after T ms of inactivity (default 100)\n\
+    -d D    print one event, after D travel distance\n\
+    -t T    print one event, after T ms\n");
 }
 
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 32);
     unsigned hit_reset_delay = 100;
-    unsigned trigger_delay = 0;
+    unsigned trigger_wait = 0;
+    unsigned trigger_distance = 0;
     int opt;
     extern char *optarg;
     extern int optind;
-    while ((opt = getopt(argc, argv, "hvr:t:")) != -1) {
+    while ((opt = getopt(argc, argv, "hvr:t:d:")) != -1) {
         switch (opt) {
         case 'h':
             usage();
@@ -49,7 +50,10 @@ int main(int argc, char **argv)
             hit_reset_delay = atoi(optarg);
             break;
         case 't':
-            trigger_delay = atoi(optarg);
+            trigger_wait = atoi(optarg);
+            break;
+        case 'd':
+            trigger_distance = atoi(optarg);
             break;
         }
     }
@@ -100,11 +104,15 @@ int main(int argc, char **argv)
 
     XISelectEvents(d, root, &mask, 1);
 
-    Bool triggered = False;
+    Bool skip_until_leave = False;
     Time hit_start = 0;
     Time prev_hit = 0;
     Bool b1_hit = False;
     Bool b2_hit = False;
+    double x_sum = 0;
+    double y_sum = 0;
+    double distance;
+
     while (1) {
         XEvent ev;
         XNextEvent(d, &ev);
@@ -128,16 +136,20 @@ int main(int argc, char **argv)
                     hit_start = b->time;
                 }
 
+                x_sum += b->dx;
+                y_sum += b->dy;
+                distance = sqrt(x_sum * x_sum + y_sum * y_sum);
+
                 unsigned t_since_start = b->time - hit_start;
-                if (t_since_start > trigger_delay && !triggered) {
-                    if (trigger_delay == 0) {
-                        printf("hit\t%u\n", t_since_start);
-                    } else {
-                        printf("hit\n");
-                        triggered = True;
-                    }
+                if (skip_until_leave || t_since_start < trigger_wait ||
+                    distance < trigger_distance) {
+                    break;
                 }
 
+                if (trigger_wait != 0 || trigger_distance != 0) {
+                    skip_until_leave = True;
+                }
+                printf("h\t%.0f\t%u\n", distance, t_since_start);
                 break;
             case XI_BarrierLeave:
                 if (b->barrier == bar1) {
@@ -145,13 +157,19 @@ int main(int argc, char **argv)
                 } else if (b->barrier == bar2) {
                     b2_hit = False;
                 }
-
-                if (!b1_hit && !b2_hit) {
-                    triggered = False;
-                    if (trigger_delay == 0) {
-                        printf("leave\t%lu\n", b->time - hit_start);
-                    }
+                if (b1_hit || b2_hit) {
+                    break;
                 }
+
+                if (trigger_wait == 0 && trigger_distance == 0) {
+                    printf("l\t%.0f\t%lu\n",
+                           sqrt(x_sum * x_sum + y_sum * y_sum),
+                           b->time - hit_start);
+                }
+                skip_until_leave = False;
+                x_sum = 0;
+                y_sum = 0;
+                prev_hit = 0;
                 break;
             }
 
